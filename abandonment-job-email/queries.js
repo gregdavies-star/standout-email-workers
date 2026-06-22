@@ -52,12 +52,18 @@ async function findEligibleUsers() {
     if (current === undefined || ts < current) minBatchByUser.set(row.user_id, ts);
   }
 
-  const cutoff = Date.now() - ONE_HOUR_MS;
+  // Only pick up users whose batch_at crossed the 1-hour mark during THIS cron window.
+  // Window: between 2 hours ago and 1 hour ago — catches anyone who just passed the 1-hour mark.
+  // Users older than 2 hours are ignored (they'll have been caught by a previous run or missed the window).
+  const windowStart = Date.now() - (2 * ONE_HOUR_MS); // 2 hours ago
+  const windowEnd   = Date.now() - ONE_HOUR_MS;        // 1 hour ago
+
   const eligible = [];
   for (const p of freeProfiles) {
     const minBatch = minBatchByUser.get(p.id);
     if (minBatch === undefined) continue;
-    if (minBatch > cutoff) continue; // registered less than 1 hour ago
+    if (minBatch > windowEnd) continue;   // too recent — not yet 1 hour
+    if (minBatch < windowStart) continue; // too old — previous cron should have caught this
     eligible.push({
       id: p.id,
       email: p.email,

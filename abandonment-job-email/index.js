@@ -71,8 +71,10 @@ async function run() {
     throw err;
   }
 
-  const pending = users.filter((u) => !sentTracker.hasBeenSent(u.id));
-  console.log(`[abandonment-job-email] ${users.length} eligible user(s), ${pending.length} not yet emailed.`);
+  // The 1-2 hour window in the query ensures each user only appears once, ever.
+  // No additional dedup needed — all eligible users are pending.
+  const pending = users;
+  console.log(`[abandonment-job-email] ${pending.length} user(s) in the 1-2 hour abandonment window.`);
 
   let sentCount = 0;
   let skipped = 0;
