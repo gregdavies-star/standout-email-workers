@@ -68,39 +68,63 @@ async function findEligibleUsers() {
   return eligible;
 }
 
-// Step 2 — best untouched job match for a user: rank > 2, job seen within 7 days, highest pct.
-async function findBestJobForUser(userId) {
+// Step 2 — batch fetch best job match for ALL eligible users in 2 queries total.
+// Returns a Map of userId -> best job object (or null if no match).
+async function findBestJobsForUsers(userIds) {
   const supabase = getSupabase();
+  const freshCutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
 
-  const { data, error } = await supabase
+  // Query 1: all queue rows for eligible users (rank > 2, not sent)
+  const { data: queueRows, error: qErr } = await supabase
     .from('user_match_queue')
-    .select(
-      'pct, rank, role_label, intent_label, sent_at, ' +
-        'jobs ( id, title, company, location, salary_min, salary_max, work_type, source_url, description, role_category, first_seen_at, last_seen_at, ats_provider )'
-    )
-    .eq('user_id', userId)
+    .select('user_id, job_id, pct, rank, role_label, intent_label')
+    .in('user_id', userIds)
     .gt('rank', 2)
-    .is('sent_at', null);
-  if (error) throw new Error(`best-job query failed for user ${userId}: ${error.message}`);
+    .is('sent_at', null)
+    .order('pct', { ascending: false })
+    .order('rank', { ascending: true });
+  if (qErr) throw new Error(`batch queue query failed: ${qErr.message}`);
+  if (!queueRows || queueRows.length === 0) return new Map();
 
-  const freshCutoff = Date.now() - SEVEN_DAYS_MS;
-  const candidates = (data || [])
-    .filter((row) => row.jobs && row.jobs.last_seen_at && new Date(row.jobs.last_seen_at).getTime() >= freshCutoff)
-    .sort((a, b) => {
-      if (b.pct !== a.pct) return (b.pct || 0) - (a.pct || 0);
-      return (a.rank || 0) - (b.rank || 0);
-    });
+  const allJobIds = [...new Set(queueRows.map((r) => r.job_id))];
 
-  if (candidates.length === 0) return null;
+  // Query 2: fetch all those jobs that are still fresh, in batches of 500
+  const freshJobMap = new Map();
+  const BATCH = 500;
+  for (let i = 0; i < allJobIds.length; i += BATCH) {
+    const batch = allJobIds.slice(i, i + BATCH);
+    const { data: jobs, error: jErr } = await supabase
+      .from('jobs')
+      .select('id, title, company, location, salary_min, salary_max, work_type, source_url, description, role_category, first_seen_at, last_seen_at, ats_provider')
+      .in('id', batch)
+      .gte('last_seen_at', freshCutoff);
+    if (jErr) throw new Error(`batch jobs query failed: ${jErr.message}`);
+    for (const j of jobs || []) freshJobMap.set(j.id, j);
+  }
 
-  const top = candidates[0];
-  return {
-    ...top.jobs,
-    pct: top.pct,
-    rank: top.rank,
-    role_label: top.role_label,
-    intent_label: top.intent_label,
-  };
+  // For each user, pick the highest-pct queue row whose job is fresh
+  // queueRows is already sorted by pct desc, rank asc
+  const bestByUser = new Map();
+  for (const qRow of queueRows) {
+    if (bestByUser.has(qRow.user_id)) continue; // already found best for this user
+    const job = freshJobMap.get(qRow.job_id);
+    if (job) {
+      bestByUser.set(qRow.user_id, {
+        ...job,
+        pct: qRow.pct,
+        rank: qRow.rank,
+        role_label: qRow.role_label,
+        intent_label: qRow.intent_label,
+      });
+    }
+  }
+  return bestByUser;
 }
 
-module.exports = { getSupabase, findEligibleUsers, findBestJobForUser };
+// Single-user wrapper kept for backwards compat
+async function findBestJobForUser(userId) {
+  const map = await findBestJobsForUsers([userId]);
+  return map.get(userId) || null;
+}
+
+module.exports = { getSupabase, findEligibleUsers, findBestJobForUser, findBestJobsForUsers };

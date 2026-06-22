@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { findEligibleUsers, findBestJobForUser } = require('./queries');
+const { findEligibleUsers, findBestJobsForUsers } = require('./queries');
 const { generateMatchReasons } = require('./match-reason');
 const { sendJobEmail } = require('./brevo');
 const sentTracker = require('./sent-tracker');
@@ -77,19 +77,21 @@ async function run() {
   let sentCount = 0;
   let skipped = 0;
 
+  // Batch-fetch best job for all pending users in 2 queries total
+  let bestJobMap;
+  try {
+    bestJobMap = await findBestJobsForUsers(pending.map((u) => u.id));
+  } catch (err) {
+    console.error('[abandonment-job-email] Batch job query failed, aborting:', err.message);
+    throw err;
+  }
+
   for (const user of pending) {
-    let job;
-    try {
-      job = await findBestJobForUser(user.id);
-    } catch (err) {
-      console.error(`[abandonment-job-email] Failed to load match for ${user.id}, skipping:`, err.message);
-      skipped++;
-      continue;
-    }
+    const job = bestJobMap.get(user.id);
 
     if (!job) {
       skipped++;
-      continue; // no suitable match — skip silently per spec
+      continue; // no suitable fresh match — skip silently
     }
 
     const firstName = firstNameFor(user.resume_parsed, user.email);
