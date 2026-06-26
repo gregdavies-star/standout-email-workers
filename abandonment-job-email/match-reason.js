@@ -44,6 +44,7 @@ async function generateMatchReasons(resumeParsed, job) {
     `Given this user's resume: ${JSON.stringify(resumeParsed)}\n` +
     `And this job posting: ${job.title} at ${job.company} — ${description}\n\n` +
     `Write exactly 3 short, specific bullet points (1-2 sentences each) explaining why this person is a strong match for this role.\n` +
+    `- Address the candidate directly using "you" and "your" — never refer to them in the third person\n` +
     `- Be specific to their actual experience, not generic\n` +
     `- Reference real things from their resume\n` +
     `- Connect their background to specific aspects of the job\n` +
