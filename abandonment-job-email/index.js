@@ -19,12 +19,13 @@ function formatSalary(min, max) {
   return '';
 }
 
-function formatJobAge(firstSeenAt) {
-  if (!firstSeenAt) return '';
-  const days = Math.floor((Date.now() - new Date(firstSeenAt).getTime()) / (24 * 60 * 60 * 1000));
+function formatJobAge(lastSeenAt) {
+  if (!lastSeenAt) return '';
+  const days = Math.floor((Date.now() - new Date(lastSeenAt).getTime()) / (24 * 60 * 60 * 1000));
   if (days <= 0) return 'Posted today';
   if (days === 1) return 'Posted yesterday';
-  return `Posted ${days} days ago`;
+  if (days <= 3) return `Posted ${days} days ago`;
+  return ''; // don't show age badge for anything older than 3 days
 }
 
 function firstNameFor(resumeParsed, email) {

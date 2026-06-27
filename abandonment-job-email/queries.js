@@ -1,7 +1,7 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const PAID_STATUSES = ['active', 'trialing'];
 
 let _client = null;
@@ -83,7 +83,7 @@ function extractRoleKeywords(resumeParsed) {
  */
 async function findBestJobsForUsers(users) {
   const supabase = getSupabase();
-  const freshCutoff = new Date(Date.now() - SEVEN_DAYS_MS).toISOString();
+  const freshCutoff = new Date(Date.now() - THREE_DAYS_MS).toISOString();
   const bestByUser = new Map();
 
   // Process users in parallel — one job search per user based on their resume
@@ -112,8 +112,14 @@ async function findBestJobsForUsers(users) {
       }
 
       if (jobs && jobs.length > 0) {
-        // Pick the most recently seen job
-        bestByUser.set(user.id, { ...jobs[0], pct: null, rank: null });
+        // Pick the most recently seen job — double-check it's actually fresh
+        const job = jobs[0];
+        const ageDays = (Date.now() - new Date(job.last_seen_at).getTime()) / (24 * 60 * 60 * 1000);
+        if (ageDays <= 3) {
+          bestByUser.set(user.id, { ...job, pct: null, rank: null });
+        } else {
+          console.log(`[queries] Best job for ${user.email} is ${Math.round(ageDays)}d old — skipping.`);
+        }
       }
     })
   );
