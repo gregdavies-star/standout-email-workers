@@ -110,9 +110,17 @@ async function run() {
       continue;
     }
 
+    // Belt-and-suspenders: skip if already sent (guards against overlapping cron runs)
+    const alreadySent = await sentTracker.hasBeenSent(user.id);
+    if (alreadySent) {
+      console.log(`[abandonment-job-email] Already sent to ${user.email}, skipping.`);
+      skipped++;
+      continue;
+    }
+
     try {
       const messageId = await sendJobEmail(payload);
-      sentTracker.markSent(user.id, job.id);
+      await sentTracker.markSent(user.id, job.id);
       sentCount++;
       console.log(`[abandonment-job-email] Sent to ${user.email} (messageId=${messageId}, jobId=${job.id})`);
     } catch (err) {

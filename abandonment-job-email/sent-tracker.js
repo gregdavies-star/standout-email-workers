@@ -1,28 +1,43 @@
-const fs = require('fs');
-const path = require('path');
+/**
+ * sent-tracker.js
+ *
+ * Tracks which users have already received the abandonment email.
+ * Uses Vercel KV in production (persistent across serverless restarts).
+ * Falls back to an in-memory set locally / when KV env vars are absent.
+ */
 
-const SENT_FILE = path.join(__dirname, 'sent.json');
+const KV_PREFIX = 'abandonment_sent:';
 
-function loadAll() {
-  try {
-    const raw = fs.readFileSync(SENT_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    console.error(`[sent-tracker] Could not parse ${SENT_FILE}, treating as empty:`, err.message);
-    return [];
+// Detect whether Vercel KV is configured
+function isKVAvailable() {
+  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+}
+
+// Lazy-load @vercel/kv only when available to avoid import errors locally
+function getKV() {
+  const { kv } = require('@vercel/kv');
+  return kv;
+}
+
+// In-memory fallback for local dry runs
+const memorySet = new Set();
+
+async function hasBeenSent(userId) {
+  if (isKVAvailable()) {
+    const val = await getKV().get(`${KV_PREFIX}${userId}`);
+    return val !== null;
+  }
+  return memorySet.has(userId);
+}
+
+async function markSent(userId, jobId) {
+  if (isKVAvailable()) {
+    // Store indefinitely — one send per user, ever
+    await getKV().set(`${KV_PREFIX}${userId}`, { jobId, sentAt: new Date().toISOString() });
+  } else {
+    memorySet.add(userId);
+    console.log(`[sent-tracker] (in-memory) marked ${userId} as sent`);
   }
 }
 
-function hasBeenSent(userId) {
-  return loadAll().some((entry) => entry.userId === userId);
-}
-
-function markSent(userId, jobId) {
-  const all = loadAll();
-  all.push({ userId, sentAt: new Date().toISOString(), jobId });
-  fs.writeFileSync(SENT_FILE, JSON.stringify(all, null, 2) + '\n', 'utf8');
-}
-
-module.exports = { loadAll, hasBeenSent, markSent };
+module.exports = { hasBeenSent, markSent };
