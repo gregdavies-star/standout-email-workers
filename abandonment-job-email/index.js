@@ -82,7 +82,7 @@ async function run() {
   // Batch-fetch best job for all pending users in 2 queries total
   let bestJobMap;
   try {
-    bestJobMap = await findBestJobsForUsers(pending.map((u) => u.id));
+    bestJobMap = await findBestJobsForUsers(pending);
   } catch (err) {
     console.error('[abandonment-job-email] Batch job query failed, aborting:', err.message);
     throw err;
