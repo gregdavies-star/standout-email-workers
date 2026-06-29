@@ -47,8 +47,8 @@ function buildPayload(user, job, reasons, firstName) {
     MATCH_REASON_1: reasons[0],
     MATCH_REASON_2: reasons[1],
     MATCH_REASON_3: reasons[2],
-    JOB_URL: `${appUrl}/dashboard?job=${job.id}`,
-    MATCHES_URL: `${appUrl}/dashboard`,
+    JOB_URL: `${appUrl}/dashboard?job=${job.id}&utm_source=brevo&utm_medium=email&utm_campaign=abandonment`,
+    MATCHES_URL: `${appUrl}/dashboard?utm_source=brevo&utm_medium=email&utm_campaign=abandonment`,
   };
   const salary = formatSalary(job.salary_min, job.salary_max);
   if (salary) params.SALARY_RANGE = salary;
