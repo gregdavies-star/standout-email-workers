@@ -44,6 +44,7 @@ function buildPayload(user, job, reasons, firstName) {
     JOB_LOCATION: job.location,
     WORK_TYPE: job.work_type,
     JOB_AGE: formatJobAge(job.first_seen_at),
+    MATCH_PCT: job.pct || '',
     MATCH_REASON_1: reasons[0],
     MATCH_REASON_2: reasons[1],
     MATCH_REASON_3: reasons[2],
