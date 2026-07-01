@@ -1,9 +1,40 @@
 require('dotenv').config();
 
+const { createHmac } = require('node:crypto');
 const { findEligibleUsers, findBestJobsForUsers } = require('./queries');
 const { generateMatchReasons } = require('./match-reason');
 const { sendJobEmail } = require('./brevo');
 const sentTracker = require('./sent-tracker');
+
+// ---------------------------------------------------------------------------
+// Email auto-login magic link
+// Ported from server/lib/email-token.ts and server/marketing/links.ts.
+// See docs/EMAIL_AUTOLOGIN_MAGIC_LINK.md in the main repo for full details.
+// ---------------------------------------------------------------------------
+
+function b64urlEncode(buf) {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function signEmailToken(payload, secret) {
+  const payloadB64 = b64urlEncode(Buffer.from(JSON.stringify(payload), 'utf8'));
+  const sig = createHmac('sha256', secret).update(payloadB64).digest();
+  return `${payloadB64}.${b64urlEncode(sig)}`;
+}
+
+/**
+ * Mint a signed auto-login URL that routes through /api/auth/email-link.
+ * On click: server verifies token → mints fresh Supabase magic link → redirects
+ * user signed-in to `redirect`. Falls back to plain UTM link if secret missing.
+ */
+function buildMagicLink(appUrl, userId, redirect) {
+  const secret = process.env.EMAIL_LINK_SECRET;
+  if (!secret) return `${appUrl}${redirect}`; // graceful fallback
+  const exp = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60; // 7-day TTL
+  const token = signEmailToken({ uid: userId, redirect, exp }, secret);
+  const params = new URLSearchParams({ uid: userId, t: token });
+  return `${appUrl}/api/auth/email-link?${params.toString()}`;
+}
 
 function isDryRun() {
   return String(process.env.DRY_RUN).toLowerCase() !== 'false';
@@ -37,6 +68,16 @@ function firstNameFor(resumeParsed, email) {
 
 function buildPayload(user, job, reasons, firstName) {
   const appUrl = process.env.STANDOUT_APP_URL || 'https://standout.jobs';
+
+  // Build redirect paths (UTMs baked in — these go inside the signed token)
+  const jobRedirect = `/dashboard?job=${job.id}&utm_source=brevo&utm_medium=email&utm_campaign=abandonment`;
+  const matchesRedirect = `/matches?utm_source=brevo&utm_medium=email&utm_campaign=abandonment`;
+
+  // Mint auto-login magic links — user lands signed-in with no login/paywall friction.
+  // Falls back to plain UTM links if EMAIL_LINK_SECRET is not set.
+  const jobUrl     = buildMagicLink(appUrl, user.id, jobRedirect);
+  const matchesUrl = buildMagicLink(appUrl, user.id, matchesRedirect);
+
   const params = {
     FIRST_NAME: firstName,
     JOB_TITLE: job.title,
@@ -48,8 +89,8 @@ function buildPayload(user, job, reasons, firstName) {
     MATCH_REASON_1: reasons[0],
     MATCH_REASON_2: reasons[1],
     MATCH_REASON_3: reasons[2],
-    JOB_URL: `${appUrl}/dashboard?job=${job.id}&utm_source=brevo&utm_medium=email&utm_campaign=abandonment`,
-    MATCHES_URL: `${appUrl}/dashboard?utm_source=brevo&utm_medium=email&utm_campaign=abandonment`,
+    JOB_URL: jobUrl,
+    MATCHES_URL: matchesUrl,
   };
   const salary = formatSalary(job.salary_min, job.salary_max);
   if (salary) params.SALARY_RANGE = salary;
